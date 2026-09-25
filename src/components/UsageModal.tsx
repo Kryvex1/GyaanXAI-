@@ -1,7 +1,7 @@
 import React from 'react';
 import { X, Gauge, Zap, Calendar, AlertCircle, ArrowUpRight } from 'lucide-react';
 import { DailyUsageStats } from '../types.ts';
-import { MODEL_QUOTA_SPECS } from '../quotaUtils.ts';
+import { getModelQuota } from '../quotaUtils.ts';
 
 interface UsageModalProps {
   isOpen: boolean;
@@ -18,7 +18,7 @@ export const UsageModal: React.FC<UsageModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const spec = MODEL_QUOTA_SPECS[currentModel] || MODEL_QUOTA_SPECS['gemini-2.5-flash'];
+  const spec = getModelQuota(currentModel);
 
   // Token calculations
   const totalTokensUsed = dailyStats.totalTokensUsed;

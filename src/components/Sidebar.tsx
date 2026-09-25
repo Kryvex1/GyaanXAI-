@@ -1,30 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Plus,
-  MessageSquare,
-  Trash2,
-  Edit2,
-  Check,
-  X,
   Search,
-  Compass,
-  FileText,
-  Wrench,
-  Crown,
-  ChevronRight,
-  PanelLeftClose,
-  SlidersHorizontal,
-  BarChart3,
-  Zap,
+  X,
+  Settings,
+  MoreVertical,
+  Edit2,
+  Trash2,
+  ChevronDown,
+  Check,
+  MessageSquare,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { Conversation } from '../types.ts';
 import { ConfirmModal } from './ConfirmModal.tsx';
-import { GyaanXLogo } from './GyaanXLogo.tsx';
-import { formatConversationTime } from '../utils.ts';
+import { UserAvatar } from './UserAvatar.tsx';
+import { AppUser } from '../firebase.ts';
 
 interface SidebarProps {
   conversations: Conversation[];
-  activeId: string | null;
+  activeId: string;
   onSelectConversation: (id: string) => void;
   onNewChat: () => void;
   onDeleteConversation: (id: string) => void;
@@ -32,11 +27,11 @@ interface SidebarProps {
   onClearAll: () => void;
   onOpenSettings: () => void;
   onOpenUsage: () => void;
-  onOpenProMode?: () => void;
-  onOpenExplore?: () => void;
-  onOpenPrompts?: () => void;
-  onOpenTools?: () => void;
-  tokensLeft: number;
+  onOpenProfile: () => void;
+  activeTab?: 'chats' | 'images';
+  onSelectTab?: (tab: 'chats' | 'images') => void;
+  currentUser: AppUser | null;
+  tokensLeft?: number;
   isOpen: boolean;
   onToggleOpen: () => void;
   currentModel?: string;
@@ -49,31 +44,43 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNewChat,
   onDeleteConversation,
   onRenameConversation,
-  onClearAll,
-  onOpenSettings,
-  onOpenUsage,
-  onOpenProMode,
-  onOpenExplore,
-  onOpenPrompts,
-  onOpenTools,
-  tokensLeft,
+  onOpenProfile,
+  activeTab = 'chats',
+  onSelectTab,
+  currentUser,
   isOpen,
   onToggleOpen,
-  currentModel = 'gemini-2.5-flash',
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'chats' | 'explore' | 'prompts' | 'tools'>('chats');
+  const [isSearching, setIsSearching] = useState(false);
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [conversationToDelete, setConversationToDelete] = useState<Conversation | null>(null);
-  const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
+
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close 3-dot menu on outside click
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setActiveMenuId(null);
+      }
+    };
+    if (activeMenuId) {
+      document.addEventListener('mousedown', handleOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+    };
+  }, [activeMenuId]);
 
   const filteredConversations = conversations.filter((c) =>
     c.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const startEditing = (c: Conversation, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const startEditing = (c: Conversation) => {
+    setActiveMenuId(null);
     setEditingId(c.id);
     setEditTitle(c.title);
   };
@@ -85,13 +92,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
     setEditingId(null);
   };
-
-  const modelDisplayName =
-    currentModel === 'gemini-2.5-flash'
-      ? 'GyaanX Flash'
-      : currentModel === 'gemini-3.1-flash-lite'
-      ? 'GyaanX Flash Lite'
-      : 'GyaanX Pro';
 
   return (
     <>
@@ -105,183 +105,161 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed lg:static top-0 bottom-0 left-0 z-40 w-72 bg-[#090d18] border-r border-[#151c2e] flex flex-col transition-transform duration-200 ease-in-out select-none ${
+        className={`fixed lg:static top-0 bottom-0 left-0 z-40 w-72 bg-[#0c101c] border-r border-white/10 flex flex-col transition-transform duration-200 ease-in-out select-none ${
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-72'
         }`}
       >
-        {/* Brand Header with User's Uploaded Logo */}
-        <div className="p-3.5 flex items-center justify-between border-b border-[#141b2c]">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <GyaanXLogo size={34} />
-            <div className="flex flex-col min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="font-bold text-[14.5px] text-white tracking-tight">GyaanX AI</span>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 ring-4 ring-emerald-400/20 shrink-0" />
-              </div>
-              <span className="text-[11px] text-slate-400 truncate">
-                Online • {modelDisplayName}
-              </span>
-            </div>
+        {/* Top Header: Gemini Star + Brand + Close Button */}
+        <div className="p-4 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            {/* 4-Point Gemini Colorful Star */}
+            <svg viewBox="0 0 100 100" className="w-6 h-6">
+              <defs>
+                <linearGradient id="sidebarGeminiStar" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#38bdf8" />
+                  <stop offset="35%" stopColor="#6366f1" />
+                  <stop offset="70%" stopColor="#ec4899" />
+                  <stop offset="100%" stopColor="#fb923c" />
+                </linearGradient>
+              </defs>
+              <path
+                d="M50 0 C50 27.6 27.6 50 0 50 C27.6 50 50 72.4 50 100 C50 72.4 72.4 50 100 50 C72.4 50 50 27.6 50 0 Z"
+                fill="url(#sidebarGeminiStar)"
+              />
+            </svg>
+            <span className="font-semibold text-lg text-white tracking-tight">GyaanX</span>
           </div>
 
           <button
             type="button"
             onClick={onToggleOpen}
-            className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+            className="p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
             title="Close sidebar"
           >
-            <PanelLeftClose size={18} />
+            <X size={20} />
           </button>
         </div>
 
-        {/* Action Button: + New Chat (Royal Vibrant Blue) */}
-        <div className="p-3 pb-2 space-y-2.5">
-          <button
-            type="button"
-            onClick={onNewChat}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-[#2b70f7] hover:from-blue-500 hover:to-blue-600 text-white font-medium text-[13.5px] shadow-lg shadow-blue-600/30 transition-all active:scale-[0.98] cursor-pointer"
-          >
-            <Plus size={16} strokeWidth={2.6} />
-            <span>New Chat</span>
-          </button>
-
-          {/* Navigation Items (Chats, Explore, Prompts, Tools) */}
-          <nav className="space-y-0.5">
+        {/* Top Segment Tabs: Chats & Images Gallery */}
+        <div className="px-4 pb-3">
+          <div className="flex items-center p-1 rounded-full bg-white/5 border border-white/10 gap-1">
             <button
               type="button"
-              onClick={() => setActiveTab('chats')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
+              onClick={() => {
+                if (onSelectTab) onSelectTab('chats');
+              }}
+              className={`flex-1 py-1.5 flex items-center justify-center gap-1.5 text-center text-xs font-semibold rounded-full transition-all duration-200 cursor-pointer ${
                 activeTab === 'chats'
-                  ? 'bg-[#151f33] text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-[#101726]'
+                  ? 'text-white bg-white/15 shadow-xs'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
               }`}
             >
-              <MessageSquare size={16} className={activeTab === 'chats' ? 'text-blue-400' : 'text-slate-400'} />
+              <MessageSquare size={13} className={activeTab === 'chats' ? 'text-blue-400' : 'text-slate-400'} />
               <span>Chats</span>
             </button>
-
             <button
               type="button"
               onClick={() => {
-                setActiveTab('explore');
-                if (onOpenExplore) onOpenExplore();
+                if (onSelectTab) onSelectTab('images');
+                if (window.innerWidth < 1024) onToggleOpen();
               }}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                activeTab === 'explore'
-                  ? 'bg-[#151f33] text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-[#101726]'
+              className={`flex-1 py-1.5 flex items-center justify-center gap-1.5 text-center text-xs font-semibold rounded-full transition-all duration-200 active:scale-95 cursor-pointer ${
+                activeTab === 'images'
+                  ? 'text-white bg-white/15 shadow-xs'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
               }`}
+              title="View uploaded images"
             >
-              <Compass size={16} className={activeTab === 'explore' ? 'text-blue-400' : 'text-slate-400'} />
-              <span>Explore</span>
+              <ImageIcon size={13} className={activeTab === 'images' ? 'text-indigo-400' : 'text-slate-400'} />
+              <span>Images</span>
             </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('prompts');
-                if (onOpenPrompts) onOpenPrompts();
-              }}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                activeTab === 'prompts'
-                  ? 'bg-[#151f33] text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-[#101726]'
-              }`}
-            >
-              <FileText size={16} className={activeTab === 'prompts' ? 'text-blue-400' : 'text-slate-400'} />
-              <span>Prompts</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('tools');
-                if (onOpenTools) onOpenTools();
-              }}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
-                activeTab === 'tools'
-                  ? 'bg-[#151f33] text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-[#101726]'
-              }`}
-            >
-              <Wrench size={16} className={activeTab === 'tools' ? 'text-blue-400' : 'text-slate-400'} />
-              <span>Tools</span>
-            </button>
-          </nav>
-        </div>
-
-        {/* Search bar inside sidebar */}
-        <div className="px-3 py-1">
-          <div className="relative">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
-            <input
-              type="text"
-              placeholder="Search chats..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 bg-[#0e1424] border border-[#1a2338] rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/60"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
-              >
-                <X size={12} />
-              </button>
-            )}
           </div>
         </div>
 
-        {/* Recent Chats Section Heading */}
-        <div className="px-4 pt-3 pb-1.5 flex items-center justify-between">
-          <span className="text-[11.5px] font-medium text-slate-400">Recent Chats</span>
-          {conversations.length > 1 && (
+        {/* Primary Action Buttons */}
+        <div className="px-4 space-y-2 pb-3">
+          {/* New Chat Button (Pill matching screenshot) */}
+          <button
+            type="button"
+            onClick={() => {
+              onNewChat();
+              if (window.innerWidth < 1024) onToggleOpen();
+            }}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-full bg-white/10 hover:bg-white/15 text-white font-medium text-sm transition-all active:scale-[0.98] cursor-pointer border border-white/10 shadow-sm"
+          >
+            <Plus size={18} strokeWidth={2.4} />
+            <span>New chat</span>
+          </button>
+
+          {/* Search Chats Button */}
+          {!isSearching ? (
             <button
               type="button"
-              onClick={() => setShowClearAllConfirm(true)}
-              className="text-[10.5px] text-slate-500 hover:text-red-400 transition-colors"
-              title="Clear all chats"
+              onClick={() => setIsSearching(true)}
+              className="w-full flex items-center gap-3 px-4 py-2.5 rounded-full text-slate-300 hover:text-white hover:bg-white/5 font-medium text-sm transition-colors cursor-pointer"
             >
-              Clear
+              <Search size={18} />
+              <span>Search chats</span>
             </button>
+          ) : (
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                autoFocus
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-7 py-2 bg-white/5 border border-white/15 rounded-full text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-400"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setIsSearching(false);
+                }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+              >
+                <X size={13} />
+              </button>
+            </div>
           )}
         </div>
 
-        {/* Conversations List */}
-        <div className="flex-1 overflow-y-auto px-2 space-y-0.5">
+        {/* Recent Chats Section Header */}
+        <div className="px-5 py-2 flex items-center gap-1.5 text-xs font-semibold text-slate-400">
+          <span>Recent</span>
+          <ChevronDown size={14} />
+        </div>
+
+        {/* Conversation List */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-2 space-y-0.5">
           {filteredConversations.length === 0 ? (
-            <div className="px-3 py-6 text-center text-xs text-slate-500">
-              No conversations found
+            <div className="py-8 text-center text-xs text-slate-500">
+              {searchQuery ? 'No matching chats' : 'No chats yet'}
             </div>
           ) : (
             filteredConversations.map((c) => {
               const isActive = c.id === activeId;
               const isEditing = editingId === c.id;
-              const timeDisplay = formatConversationTime(c.updatedAt || c.createdAt);
 
               return (
-                <div
-                  key={c.id}
-                  onClick={() => onSelectConversation(c.id)}
-                  className={`group relative flex items-center justify-between px-2.5 py-2 rounded-xl text-xs cursor-pointer transition-all ${
-                    isActive
-                      ? 'bg-[#151f33] text-white font-medium shadow-xs border border-blue-500/20'
-                      : 'text-slate-300 hover:text-white hover:bg-[#0e1526]'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0 flex-1 mr-1">
-                    <MessageSquare
-                      size={14}
-                      className={`shrink-0 ${
-                        isActive ? 'text-blue-400' : 'text-slate-500 group-hover:text-slate-400'
-                      }`}
-                    />
-
+                <div key={c.id} className="relative group">
+                  <div
+                    onClick={() => {
+                      onSelectConversation(c.id);
+                      if (window.innerWidth < 1024) onToggleOpen();
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left text-sm transition-colors cursor-pointer ${
+                      isActive
+                        ? 'bg-white/10 text-white font-medium'
+                        : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                    }`}
+                  >
                     {isEditing ? (
                       <form
                         onSubmit={(e) => saveEditing(c.id, e)}
-                        className="flex items-center gap-1 flex-1"
+                        className="flex-1 flex items-center gap-1"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <input
@@ -289,113 +267,106 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           value={editTitle}
                           onChange={(e) => setEditTitle(e.target.value)}
                           autoFocus
-                          className="w-full bg-slate-950 text-white px-1.5 py-0.5 rounded border border-slate-700 text-xs focus:outline-none"
+                          className="flex-1 bg-black/50 border border-blue-500 rounded px-2 py-0.5 text-xs text-white focus:outline-none"
                         />
-                        <button
-                          type="submit"
-                          className="p-1 text-emerald-400 hover:text-emerald-300"
-                        >
-                          <Check size={12} />
+                        <button type="submit" className="p-1 text-emerald-400 hover:text-emerald-300">
+                          <Check size={14} />
                         </button>
                         <button
                           type="button"
                           onClick={() => setEditingId(null)}
-                          className="p-1 text-slate-400 hover:text-slate-200"
+                          className="p-1 text-slate-400 hover:text-white"
                         >
-                          <X size={12} />
+                          <X size={14} />
                         </button>
                       </form>
                     ) : (
-                      <span className="truncate">{c.title}</span>
-                    )}
-                  </div>
+                      <>
+                        <span className="truncate pr-2">{c.title || 'New conversation'}</span>
 
-                  {/* Right side: Timestamp + Actions */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    {!isEditing && (
-                      <span className="text-[10px] text-slate-500 group-hover:hidden group-focus-within:hidden">
-                        {timeDisplay}
-                      </span>
-                    )}
-
-                    {!isEditing && (
-                      <div
-                        className={`items-center gap-0.5 shrink-0 ${
-                          isActive ? 'flex' : 'hidden group-hover:flex group-focus-within:flex'
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={(e) => startEditing(c, e)}
-                          className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800"
-                          title="Rename chat"
-                        >
-                          <Edit2 size={12} />
-                        </button>
+                        {/* 3-Dots Menu Trigger matching Gemini screenshot */}
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setConversationToDelete(c);
+                            setActiveMenuId(activeMenuId === c.id ? null : c.id);
                           }}
-                          className="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-slate-800"
-                          title="Delete chat"
+                          className={`p-1 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition-colors shrink-0 ${
+                            isActive || activeMenuId === c.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                          }`}
+                          title="Chat options"
                         >
-                          <Trash2 size={12} />
+                          <MoreVertical size={16} />
                         </button>
-                      </div>
+                      </>
                     )}
                   </div>
+
+                  {/* 3-Dots Dropdown Menu */}
+                  {activeMenuId === c.id && (
+                    <div
+                      ref={menuRef}
+                      className="absolute right-2 top-full mt-1 w-36 rounded-xl bg-[#141b2b] border border-white/15 shadow-2xl z-50 p-1 animate-in fade-in zoom-in-95 backdrop-blur-md"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => startEditing(c)}
+                        className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-slate-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                      >
+                        <Edit2 size={13} />
+                        <span>Rename</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveMenuId(null);
+                          setConversationToDelete(c);
+                        }}
+                        className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-red-400 hover:text-red-300 hover:bg-red-950/40 transition-colors cursor-pointer"
+                      >
+                        <Trash2 size={13} />
+                        <span>Delete</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })
           )}
         </div>
 
-        {/* Footer Area: User Daily Activity & Usage Status */}
-        <div className="p-3 border-t border-[#141b2c] space-y-2">
-          {/* Daily Usage Status */}
-          <button
-            type="button"
-            onClick={onOpenUsage}
-            className="w-full p-2.5 rounded-xl bg-[#0e1424] hover:bg-[#12192c] border border-[#1b253b] hover:border-slate-700 transition-all text-left group cursor-pointer"
-            title="View daily token usage and quota status"
+        {/* Bottom User Account Card matching Screenshot_20260925_142051.jpg */}
+        <div className="p-3 border-t border-white/10">
+          <div
+            onClick={onOpenProfile}
+            className="w-full flex items-center justify-between p-2 rounded-2xl hover:bg-white/5 transition-all cursor-pointer group"
           >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] font-medium text-slate-300 group-hover:text-white flex items-center gap-1.5">
-                <BarChart3 size={13} className="text-blue-400" />
-                Daily Usage & Quota
-              </span>
-              <span className="text-[11px] font-mono text-emerald-400 font-semibold">
-                {tokensLeft > 1000000 ? `${(tokensLeft / 1000000).toFixed(1)}M` : `${Math.round(tokensLeft / 1000)}k`} left
-              </span>
+            <div className="flex items-center gap-3 min-w-0">
+              <UserAvatar
+                photoURL={currentUser?.photoURL}
+                displayName={currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User'}
+                size={36}
+                className="ring-2 ring-white/10 shrink-0"
+              />
+              <div className="flex flex-col min-w-0 text-left">
+                <span className="text-sm font-semibold text-white tracking-tight truncate group-hover:text-blue-300 transition-colors">
+                  {currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User'}
+                </span>
+                <span className="text-xs text-slate-400">Online</span>
+              </div>
             </div>
-            <div className="text-[10px] text-slate-500 flex items-center justify-between">
-              <span>Usage status</span>
-              <span className="text-blue-400 group-hover:underline">Details &rarr;</span>
-            </div>
-          </button>
-
-          {/* Model Status & Settings Trigger */}
-          <div className="flex items-center justify-between px-1 pt-0.5">
-            <button
-              type="button"
-              onClick={onOpenSettings}
-              className="flex items-center gap-1.5 text-left hover:opacity-80 transition-opacity"
-            >
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[11px] text-slate-400 font-medium">
-                {modelDisplayName}
-              </span>
-            </button>
 
             <button
               type="button"
-              onClick={onOpenSettings}
-              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-              title="Settings"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenProfile();
+              }}
+              className="p-2 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              title="Account & Settings"
             >
-              <SlidersHorizontal size={14} />
+              <Settings size={18} />
             </button>
           </div>
         </div>
@@ -414,19 +385,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }
         }}
         onCancel={() => setConversationToDelete(null)}
-      />
-
-      {/* Clear All Modal */}
-      <ConfirmModal
-        isOpen={showClearAllConfirm}
-        title="Clear All Conversations"
-        message="Are you sure you want to delete all chat history? A fresh conversation will be started."
-        confirmLabel="Clear All"
-        onConfirm={() => {
-          setShowClearAllConfirm(false);
-          onClearAll();
-        }}
-        onCancel={() => setShowClearAllConfirm(false)}
       />
     </>
   );

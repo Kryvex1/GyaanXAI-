@@ -10,32 +10,78 @@ export interface ModelQuotaSpec {
   tpd: number; // Tokens per day
 }
 
+const DEFAULT_QUOTA_SPEC: ModelQuotaSpec = {
+  modelId: 'gemini-3.8-flash',
+  name: 'Gemini 3.8 Flash',
+  rpm: 15,
+  rpd: 1500,
+  tpm: 1000000,
+  tpd: 10000000,
+};
+
 export const MODEL_QUOTA_SPECS: Record<string, ModelQuotaSpec> = {
+  'gemini-3.8-flash': {
+    modelId: 'gemini-3.8-flash',
+    name: 'Gemini 3.8 Flash',
+    rpm: 15,
+    rpd: 1500,
+    tpm: 1000000,
+    tpd: 10000000,
+  },
+  'gemini-3.1-flash-lite': {
+    modelId: 'gemini-3.1-flash-lite',
+    name: 'Gemini 3.1 Flash-Lite',
+    rpm: 30,
+    rpd: 1500,
+    tpm: 1000000,
+    tpd: 10000000,
+  },
+  'gemini-3.1-pro': {
+    modelId: 'gemini-3.1-pro-preview',
+    name: 'Gemini 3.1 Pro',
+    rpm: 15,
+    rpd: 1500,
+    tpm: 1000000,
+    tpd: 10000000,
+  },
+  'gemini-3.1-pro-preview': {
+    modelId: 'gemini-3.1-pro-preview',
+    name: 'Gemini 3.1 Pro Preview',
+    rpm: 15,
+    rpd: 1500,
+    tpm: 1000000,
+    tpd: 10000000,
+  },
+  'gemini-flash-latest': {
+    modelId: 'gemini-flash-latest',
+    name: 'Gemini Flash Latest',
+    rpm: 15,
+    rpd: 1500,
+    tpm: 1000000,
+    tpd: 10000000,
+  },
   'gemini-2.5-flash': {
     modelId: 'gemini-2.5-flash',
     name: 'Gemini 2.5 Flash',
     rpm: 15,
     rpd: 1500,
     tpm: 1000000,
-    tpd: 10000000, // 10M tokens / day
+    tpd: 10000000,
   },
-  'gemini-3.1-flash-lite': {
-    modelId: 'gemini-3.1-flash-lite',
-    name: 'Gemini 3.1 Flash Lite',
-    rpm: 30,
+  'gemini-2.5-pro': {
+    modelId: 'gemini-2.5-pro',
+    name: 'Gemini 2.5 Pro',
+    rpm: 15,
     rpd: 1500,
     tpm: 1000000,
     tpd: 10000000,
   },
-  'gemini-3.8-flash': {
-    modelId: 'gemini-3.8-flash',
-    name: 'Gemini 3.8 Flash',
-    rpm: 10,
-    rpd: 500,
-    tpm: 250000,
-    tpd: 2500000,
-  },
 };
+
+export function getModelQuota(modelId?: string): ModelQuotaSpec {
+  if (!modelId) return DEFAULT_QUOTA_SPEC;
+  return MODEL_QUOTA_SPECS[modelId] || DEFAULT_QUOTA_SPEC;
+}
 
 const STATS_STORAGE_KEY = 'gemini_daily_usage_stats_v1';
 

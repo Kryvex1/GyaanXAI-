@@ -2,14 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   ArrowUp,
   Square,
-  Image as ImageIcon,
-  Paperclip,
+  Plus,
   Mic,
   MicOff,
-  Globe,
   Loader2,
   X,
-  Sparkles,
+  ShieldAlert,
 } from 'lucide-react';
 import { AttachedImage } from '../types.ts';
 import { uploadToImgBB } from '../imgbb.ts';
@@ -18,8 +16,6 @@ interface ChatInputProps {
   onSendMessage: (content: string, image?: AttachedImage) => void;
   isStreaming: boolean;
   onStop: () => void;
-  enableSearch: boolean;
-  onToggleSearch: () => void;
   isLoggedIn?: boolean;
   onRequireLogin?: () => void;
 }
@@ -28,27 +24,40 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
   isStreaming,
   onStop,
-  enableSearch,
-  onToggleSearch,
 }) => {
   const [input, setInput] = useState('');
   const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isListening, setIsListening] = useState(false);
+
+  // Anti-Spam Rate Limiter (Protects website & API from spam bursts)
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const messageTimestampsRef = useRef<number[]>([]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);
 
-  // Auto-resize textarea smoothly without jumping
+  // Controlled, compact auto-resize: min 24px, max 76px (never oversized)
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       const scrollHeight = textareaRef.current.scrollHeight;
-      textareaRef.current.style.height = `${Math.min(Math.max(scrollHeight, 26), 140)}px`;
+      const clampedHeight = Math.min(Math.max(scrollHeight, 24), 76);
+      textareaRef.current.style.height = `${clampedHeight}px`;
     }
   }, [input]);
 
-  // Voice Speech Recognition Setup
+  // Anti-spam countdown effect
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return;
+    const interval = setInterval(() => {
+      setCooldownSeconds((prev) => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [cooldownSeconds]);
+
+  // Voice Dictation (Speech Recognition)
   useEffect(() => {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -141,15 +150,26 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       return;
     }
 
+    if (cooldownSeconds > 0) return;
+
     const trimmed = input.trim();
     if (!trimmed && !attachedImage) return;
+
+    // Anti-Spam Check: Max 3 messages within 8 seconds
+    const now = Date.now();
+    const recent = messageTimestampsRef.current.filter((t) => now - t < 8000);
+    if (recent.length >= 3) {
+      setCooldownSeconds(8);
+      return;
+    }
+    messageTimestampsRef.current = [...recent, now];
 
     onSendMessage(trimmed, attachedImage || undefined);
     setInput('');
     setAttachedImage(null);
 
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = '24px';
     }
   };
 
@@ -160,10 +180,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
-  const canSubmit = input.trim().length > 0 || !!attachedImage;
+  const isSpamBlocked = cooldownSeconds > 0;
+  const canSubmit = (input.trim().length > 0 || !!attachedImage) && !isSpamBlocked;
 
   return (
-    <div className="w-full max-w-3xl mx-auto px-3 sm:px-6 pb-3 sm:pb-4 pt-1 select-none">
+    <div className="w-full max-w-3xl mx-auto px-3 sm:px-6 pb-2 sm:pb-3 select-none">
       {/* Hidden file input */}
       <input
         type="file"
@@ -204,102 +225,87 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         </div>
       )}
 
+      {/* Anti-Spam warning indicator badge if triggered */}
+      {isSpamBlocked && (
+        <div className="mb-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-[11px] text-amber-300 shadow-md animate-in fade-in duration-150">
+          <ShieldAlert size={13} className="text-amber-400 shrink-0" />
+          <span>Anti-spam active: please wait {cooldownSeconds}s before sending again</span>
+        </div>
+      )}
+
       {/* ============================================================= */}
-      {/* PREMIUM HIGH-FIDELITY CHAT INPUT CARD                         */}
+      {/* COMPACT & SLEEK INPUT CAPSULE (NO SEARCH BUTTON, NO SCROLLBAR) */}
       {/* ============================================================= */}
-      <div className="relative rounded-2xl sm:rounded-3xl bg-[#0e1424] border border-[#1b253b] hover:border-[#22314e] focus-within:border-blue-500/60 focus-within:ring-2 focus-within:ring-blue-500/15 shadow-2xl transition-all p-2.5 sm:p-3">
-        {/* Text Area */}
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask GyaanX anything..."
-          rows={1}
-          className="w-full bg-transparent text-white placeholder-slate-500 text-[14px] sm:text-[15px] focus:outline-none resize-none px-2 pt-1 pb-2 leading-relaxed max-h-36"
-        />
+      <div className="relative rounded-[26px] bg-[#111827]/95 hover:bg-[#151f33] border border-white/10 hover:border-white/20 focus-within:border-blue-500/50 focus-within:ring-2 focus-within:ring-blue-500/15 shadow-xl transition-all px-3 py-1.5 flex items-end gap-1.5 backdrop-blur-xl">
+        {/* Plus (+) Button for Image Attachments */}
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="p-2 mb-0.5 rounded-full text-slate-300 hover:text-white hover:bg-white/10 active:scale-95 transition-all cursor-pointer shrink-0"
+          title="Attach photo"
+        >
+          <Plus size={19} strokeWidth={2.2} />
+        </button>
 
-        {/* Bottom Action Bar inside input card */}
-        <div className="flex items-center justify-between pt-1 border-t border-[#162035]/80">
-          {/* Left Controls: Attach, Photos, Search, Voice */}
-          <div className="flex items-center gap-1 sm:gap-1.5">
-            {/* Attachment Button */}
+        {/* Text Input - Controlled Height, NO vertical scrollbar line */}
+        <div className="flex-1 min-w-0 py-1.5 px-1 flex items-center">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={isSpamBlocked ? `Spam cooldown (${cooldownSeconds}s)...` : "Ask GyaanX..."}
+            rows={1}
+            disabled={isSpamBlocked}
+            className="w-full bg-transparent text-white placeholder-slate-400 text-[14.5px] sm:text-[15px] focus:outline-none resize-none leading-relaxed overflow-y-auto no-scrollbar [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden disabled:opacity-50"
+            style={{
+              maxHeight: '76px',
+              minHeight: '24px',
+            }}
+          />
+        </div>
+
+        {/* Action Button: Send / Stop / Mic */}
+        <div className="mb-0.5 shrink-0 flex items-center">
+          {isStreaming ? (
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="p-1.5 sm:p-2 rounded-xl text-slate-400 hover:text-white hover:bg-[#151f33] transition-colors cursor-pointer"
-              title="Attach photo or image"
+              onClick={onStop}
+              className="p-2 rounded-full bg-red-600 hover:bg-red-500 text-white shadow-md transition-transform active:scale-95 cursor-pointer flex items-center justify-center"
+              title="Stop generating"
             >
-              <Paperclip size={17} />
+              <Square size={13} fill="currentColor" />
             </button>
-
-            {/* Photo Gallery Icon */}
+          ) : isSpamBlocked ? (
+            <div
+              className="p-2 rounded-full bg-slate-800 text-slate-500 cursor-not-allowed flex items-center justify-center text-xs font-mono"
+              title={`Cooldown: ${cooldownSeconds}s`}
+            >
+              {cooldownSeconds}s
+            </div>
+          ) : canSubmit ? (
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="p-1.5 sm:p-2 rounded-xl text-slate-400 hover:text-white hover:bg-[#151f33] transition-colors cursor-pointer"
-              title="Upload photo"
+              onClick={() => handleSubmit()}
+              className="p-2 rounded-full bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/30 transition-all active:scale-95 cursor-pointer flex items-center justify-center"
+              title="Send message"
             >
-              <ImageIcon size={17} />
+              <ArrowUp size={17} strokeWidth={2.6} />
             </button>
-
-            {/* Web Search Pill */}
-            <button
-              type="button"
-              onClick={onToggleSearch}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer ${
-                enableSearch
-                  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-xs shadow-sky-500/10'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-[#151f33] border border-transparent'
-              }`}
-              title={enableSearch ? 'Web Search active' : 'Enable Web Search'}
-            >
-              <Globe size={14} className={enableSearch ? 'text-sky-400' : 'text-slate-400'} />
-              <span className="hidden sm:inline">Search</span>
-            </button>
-
-            {/* Voice Input Button */}
+          ) : (
             <button
               type="button"
               onClick={handleToggleMic}
-              className={`p-1.5 sm:p-2 rounded-xl transition-all cursor-pointer ${
+              className={`p-2 rounded-full transition-all cursor-pointer ${
                 isListening
                   ? 'text-red-400 bg-red-950/70 border border-red-500/40 animate-pulse'
-                  : 'text-slate-400 hover:text-white hover:bg-[#151f33]'
+                  : 'text-slate-300 hover:text-white hover:bg-white/10'
               }`}
-              title={isListening ? 'Listening... click to stop' : 'Voice input'}
+              title={isListening ? 'Listening...' : 'Voice dictation'}
             >
-              {isListening ? <MicOff size={17} /> : <Mic size={17} />}
+              {isListening ? <MicOff size={18} /> : <Mic size={18} />}
             </button>
-          </div>
-
-          {/* Right Action: Send or Stop Button */}
-          <div className="flex items-center gap-2">
-            {isStreaming ? (
-              <button
-                type="button"
-                onClick={onStop}
-                className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl bg-red-600 hover:bg-red-500 text-white shadow-md shadow-red-950/40 transition-transform active:scale-95 cursor-pointer flex items-center justify-center"
-                title="Stop generating"
-              >
-                <Square size={15} fill="currentColor" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => handleSubmit()}
-                disabled={!canSubmit}
-                className={`p-2 sm:p-2.5 rounded-xl sm:rounded-2xl transition-all flex items-center justify-center ${
-                  canSubmit
-                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg shadow-blue-600/30 active:scale-95 cursor-pointer'
-                    : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-60'
-                }`}
-                title="Send message (Enter)"
-              >
-                <ArrowUp size={16} strokeWidth={2.6} />
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </div>
     </div>

@@ -21,22 +21,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const modelOptions = [
     {
-      id: 'gemini-2.5-flash' as const,
-      name: 'GyaanX Flash',
+      id: 'gemini-3.8-flash' as const,
+      name: 'GyaanX Flash (Gemini 3.8)',
       badge: 'Recommended',
-      desc: 'Most stable, ultra high speed, generous quota, and full search grounding support.',
+      desc: 'Next-gen intelligence, high speed, and native search grounding support.',
     },
     {
       id: 'gemini-3.1-flash-lite' as const,
-      name: 'GyaanX Flash Lite',
+      name: 'GyaanX Flash Lite (Gemini 3.1)',
       badge: 'High Throughput',
-      desc: 'Optimized for speed and lowest time-to-first-token.',
-    },
-    {
-      id: 'gemini-3.8-flash' as const,
-      name: 'GyaanX Pro',
-      badge: 'Pro Mode',
-      desc: 'Advanced next-gen intelligence and complex logic reasoning.',
+      desc: 'Optimized for lightweight tasks and low latency.',
     },
   ];
 

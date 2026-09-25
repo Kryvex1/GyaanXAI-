@@ -1,6 +1,6 @@
 {
-  "name": "Gemini AI Chat",
-  "description": "Ultra-clean, modern conversational AI assistant powered by Google Gemini with real-time streaming, search grounding, multi-chat management, and sleek aesthetics.",
+  "name": "GyaanX AI",
+  "description": "Intelligent, ultra-fast conversational AI assistant with real-time streaming, search grounding, and smart token optimization.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

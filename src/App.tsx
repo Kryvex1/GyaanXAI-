@@ -16,6 +16,7 @@ import {
   SlidersHorizontal,
   SquarePen,
   LogIn,
+  ChevronDown,
 } from 'lucide-react';
 import {
   Conversation,
@@ -26,6 +27,8 @@ import {
   DailyUsageStats,
   TokenUsage,
 } from './types.ts';
+import { ModelSelectorDropdown } from './components/ModelSelectorDropdown.tsx';
+import { ProfileModal } from './components/ProfileModal.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { ChatMessage } from './components/ChatMessage.tsx';
 import { ChatInput } from './components/ChatInput.tsx';
@@ -35,9 +38,11 @@ import { UsageModal } from './components/UsageModal.tsx';
 import { ConfirmModal } from './components/ConfirmModal.tsx';
 import { QuickModal } from './components/QuickModals.tsx';
 import { AuthModal } from './components/AuthModal.tsx';
+import { LoginPage } from './components/LoginPage.tsx';
 import { ProModeModal } from './components/ProModeModal.tsx';
 import { GyaanXLogo } from './components/GyaanXLogo.tsx';
 import { UserAvatar } from './components/UserAvatar.tsx';
+import { ImagesGalleryPage } from './components/ImagesGalleryPage.tsx';
 import {
   auth,
   onAuthStateChanged,
@@ -51,120 +56,64 @@ import {
   saveUserDailyQuotaToCloud,
   fetchUserDailyQuotaFromCloud,
 } from './firebase.ts';
-import { loadDailyStats, recordUsage, MODEL_QUOTA_SPECS, getTodayKey } from './quotaUtils.ts';
+import { loadDailyStats, recordUsage, MODEL_QUOTA_SPECS, getModelQuota, getTodayKey } from './quotaUtils.ts';
 import { checkAbuseAndRateLimit, recordDeviceUsage } from './antiAbuse.ts';
 import { detectUserRegionAndTone } from './utils.ts';
-import { SAMPLE_MATRIX_POSTER_SVG } from './samplePoster.ts';
 
-const STORAGE_KEY = 'gyaanx_chat_conversations_v4';
+const STORAGE_PREFIX = 'gyaanx_user_convs_';
 const SETTINGS_KEY = 'gyaanx_chat_settings_v4';
 
-function getDefaultConversations(): Conversation[] {
-  const now = Date.now();
-  const c1Id = 'c-ye-dekho-bro';
-
-  const sampleBase64 = SAMPLE_MATRIX_POSTER_SVG.replace('data:image/svg+xml;utf8,', '');
-
-  const c1: Conversation = {
-    id: c1Id,
-    title: 'Ye dekho bro',
-    createdAt: now - 1000 * 60 * 15,
-    updatedAt: now - 1000 * 60 * 15,
-    messages: [
-      {
-        id: 'msg-u1',
-        role: 'user',
-        content: 'Ye dekho bro',
-        timestamp: now - 1000 * 60 * 15,
-        image: {
-          data: encodeURIComponent(sampleBase64),
-          mimeType: 'image/svg+xml',
-          name: 'matrix_hacker_poster.svg',
-        },
-      },
-      {
-        id: 'msg-a1',
-        role: 'assistant',
-        content: `Are bhai! Kya killer pic bheji hai tune! 🤣
-Ye toh seedha 'Matrix Reloaded' ka poster lag raha hai, but apna desi version, ekdum swag waala! 😼
-
-Chal dekhte hain kya-kya hai is awesome pic mein:
-
-🖼️ **Background** – Matrix jaisa green code rain
-🎩 **Look** – Mysterious aur dangerous vibe
-⚙️ **Style** – Desi hacker / underground
-⚡ **Mood** – Calm + Attitude
-⭐ **Overall** – Poster level edit! 🔥`,
-        timestamp: now - 1000 * 60 * 15,
-        image: {
-          data: encodeURIComponent(sampleBase64),
-          mimeType: 'image/svg+xml',
-          name: 'matrix_hacker_poster.svg',
-        },
-        usage: {
-          promptTokens: 145,
-          candidatesTokens: 82,
-          totalTokens: 227,
-          model: 'gemini-2.5-flash',
-        },
-      },
-    ],
-  };
-
-  const c2: Conversation = {
-    id: 'c-bhai-kya-chal',
-    title: 'Bhai kya chal rha h...',
-    createdAt: now - 1000 * 60 * 45,
-    updatedAt: now - 1000 * 60 * 45,
-    messages: [
-      {
-        id: 'msg-u2',
-        role: 'user',
-        content: 'Bhai kya chal rha h tech industry me?',
-        timestamp: now - 1000 * 60 * 45,
-      },
-      {
-        id: 'msg-a2',
-        role: 'assistant',
-        content: 'Bas bro, AI ka danka baj raha hai! Har roz naye models aur tools launch ho rahe hain. Tu bata kya build kar raha hai?',
-        timestamp: now - 1000 * 60 * 45,
-      },
-    ],
-  };
-
-  const c3: Conversation = {
-    id: 'c-website-design',
-    title: 'Website Design',
-    createdAt: now - 1000 * 60 * 120,
-    updatedAt: now - 1000 * 60 * 120,
+function createEmptyConversation(): Conversation {
+  return {
+    id: crypto.randomUUID(),
+    title: 'New conversation',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
     messages: [],
   };
+}
 
-  const c4: Conversation = {
-    id: 'c-anime-app',
-    title: 'Anime App Idea',
-    createdAt: now - 1000 * 60 * 60 * 24,
-    updatedAt: now - 1000 * 60 * 60 * 24,
-    messages: [],
-  };
+function getStorageKey(userId?: string | null): string {
+  return userId ? `${STORAGE_PREFIX}${userId}` : 'gyaanx_guest_convs_v2';
+}
 
-  const c5: Conversation = {
-    id: 'c-code-fix',
-    title: 'Code Fix',
-    createdAt: now - 1000 * 60 * 60 * 26,
-    updatedAt: now - 1000 * 60 * 60 * 26,
-    messages: [],
-  };
+function loadInitialConversations(userId?: string | null): Conversation[] {
+  try {
+    // Purge any old demo chats from localStorage
+    localStorage.removeItem('gyaanx_chat_conversations_v4');
 
-  const c6: Conversation = {
-    id: 'c-server-problem',
-    title: 'Server Problem',
-    createdAt: now - 1000 * 60 * 60 * 24 * 4,
-    updatedAt: now - 1000 * 60 * 60 * 24 * 4,
-    messages: [],
-  };
+    const key = getStorageKey(userId);
+    const saved = localStorage.getItem(key);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Strip out any legacy fake demo chats
+        const clean = parsed.filter(
+          (c) =>
+            c &&
+            typeof c.id === 'string' &&
+            !c.id.startsWith('c-') &&
+            !c.messages?.some(
+              (m: any) =>
+                m.content?.includes('Matrix Reloaded') ||
+                m.content?.includes('Ye dekho bro') ||
+                m.content?.includes('Are bhai! Kya killer pic')
+            )
+        );
+        if (clean.length > 0) return clean;
+      }
+    }
+  } catch (e) {
+    console.error(e);
+  }
+  return [createEmptyConversation()];
+}
 
-  return [c1, c2, c3, c4, c5, c6];
+function getModelDisplayName(model: string): string {
+  if (model === 'gemini-3.8-flash') return 'GyaanX Flash';
+  if (model === 'gemini-3.1-pro-preview' || model === 'gemini-3.1-pro') return 'GyaanX Pro';
+  if (model === 'gemini-flash-latest') return 'GyaanX Core';
+  return 'GyaanX Turbo';
 }
 
 export default function App() {
@@ -173,22 +122,15 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(() => getStoredUser());
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isProModeOpen, setIsProModeOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'chats' | 'images'>('chats');
 
   const [conversations, setConversations] = useState<Conversation[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    return getDefaultConversations();
+    const user = getStoredUser();
+    return loadInitialConversations(user?.uid);
   });
 
   const [activeId, setActiveId] = useState<string>(() => {
-    return conversations[0]?.id || 'c-ye-dekho-bro';
+    return conversations[0]?.id || crypto.randomUUID();
   });
 
   const [settings, setSettings] = useState<ChatSettings>(() => {
@@ -196,11 +138,15 @@ export default function App() {
       const saved = localStorage.getItem(SETTINGS_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
+        const resolvedModel =
+          parsed.model === 'gemini-2.5-flash' || !parsed.model
+            ? 'gemini-3.1-flash-lite'
+            : parsed.model;
         return {
-          enableSearch: !!parsed.enableSearch,
+          enableSearch: false,
           tone: parsed.tone || defaultTone,
           systemInstruction: parsed.systemInstruction || '',
-          model: parsed.model || 'gemini-2.5-flash',
+          model: resolvedModel,
           customApiKey: parsed.customApiKey || '',
         };
       }
@@ -211,7 +157,7 @@ export default function App() {
       enableSearch: false,
       tone: defaultTone,
       systemInstruction: '',
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-flash-lite',
       customApiKey: '',
     };
   });
@@ -219,6 +165,9 @@ export default function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [extendedThinking, setExtendedThinking] = useState(false);
   const [isUsageOpen, setIsUsageOpen] = useState(false);
   const [quickModal, setQuickModal] = useState<'explore' | 'prompts' | 'tools' | 'search' | null>(null);
   const [showClearCurrentModal, setShowClearCurrentModal] = useState(false);
@@ -241,13 +190,56 @@ export default function App() {
         setCurrentUser(user);
         saveStoredUser(user);
 
-        // ☁️ Sync Cloud conversations from Firestore for this account
+        // ☁️ Sync Cloud conversations from Firestore for this specific account
         try {
           const cloudConvs = await fetchUserConversationsFromCloud(fbUser.uid);
           if (cloudConvs && cloudConvs.length > 0) {
-            setConversations(cloudConvs);
-            setActiveId(cloudConvs[0].id);
+            const cleanConvs = cloudConvs.filter(
+              (c) =>
+                c &&
+                !c.id.startsWith('c-') &&
+                !c.messages?.some((m) => m.content?.includes('Matrix Reloaded'))
+            );
+            if (cleanConvs.length > 0) {
+              setConversations(cleanConvs);
+              setActiveId(cleanConvs[0].id);
+              localStorage.setItem(getStorageKey(fbUser.uid), JSON.stringify(cleanConvs));
+            } else {
+              const fresh = [createEmptyConversation()];
+              setConversations(fresh);
+              setActiveId(fresh[0].id);
+            }
+          } else {
+            // Check if current device already has local chats (e.g. user was chatting before logging in)
+            const localKey = getStorageKey(fbUser.uid);
+            const guestKey = getStorageKey(undefined);
+            const savedLocal = localStorage.getItem(localKey) || localStorage.getItem(guestKey);
+            let localWithMessages: Conversation[] = [];
+            if (savedLocal) {
+              try {
+                const parsed: Conversation[] = JSON.parse(savedLocal);
+                localWithMessages = parsed.filter((c) => c && c.messages && c.messages.length > 0);
+              } catch (e) {
+                console.error(e);
+              }
+            }
+
+            if (localWithMessages.length > 0) {
+              setConversations(localWithMessages);
+              setActiveId(localWithMessages[0].id);
+              // Migrate local conversations to Firestore cloud so other devices will see them!
+              for (const conv of localWithMessages) {
+                saveUserConversationToCloud(fbUser.uid, conv).catch((err) =>
+                  console.warn('Migrate to cloud failed:', err)
+                );
+              }
+            } else {
+              const fresh = [createEmptyConversation()];
+              setConversations(fresh);
+              setActiveId(fresh[0].id);
+            }
           }
+
           const cloudQuota = await fetchUserDailyQuotaFromCloud(fbUser.uid, getTodayKey());
           if (cloudQuota) {
             setDailyStats(cloudQuota);
@@ -255,19 +247,27 @@ export default function App() {
         } catch (err) {
           console.warn('Failed to load user cloud data:', err);
         }
+      } else {
+        // User logged out: Reset session completely so no chats are leaked to guest or other users/devices!
+        setCurrentUser(null);
+        saveStoredUser(null);
+        const fresh = [createEmptyConversation()];
+        setConversations(fresh);
+        setActiveId(fresh[0].id);
       }
     });
     return () => unsubscribe();
   }, []);
 
-  // Sync conversations to localStorage
+  // Sync conversations to scoped localStorage
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+      const key = getStorageKey(currentUser?.uid);
+      localStorage.setItem(key, JSON.stringify(conversations));
     } catch (e) {
       console.error(e);
     }
-  }, [conversations]);
+  }, [conversations, currentUser?.uid]);
 
   // Sync settings to localStorage
   useEffect(() => {
@@ -334,26 +334,25 @@ export default function App() {
   const handleDeleteConversation = (id: string) => {
     setConversations((prev) => {
       const filtered = prev.filter((c) => c.id !== id);
+      const nextConversations = filtered.length === 0 ? [createEmptyConversation()] : filtered;
       if (filtered.length === 0) {
-        const newId = crypto.randomUUID();
-        const fresh: Conversation = {
-          id: newId,
-          title: 'New conversation',
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          messages: [],
-        };
-        setActiveId(newId);
-        return [fresh];
-      }
-      if (activeId === id) {
+        setActiveId(nextConversations[0].id);
+      } else if (activeId === id) {
         setActiveId(filtered[0].id);
       }
-      return filtered;
+      try {
+        const key = getStorageKey(currentUser?.uid);
+        localStorage.setItem(key, JSON.stringify(nextConversations));
+      } catch (err) {
+        console.error(err);
+      }
+      return nextConversations;
     });
 
     if (currentUser?.uid) {
-      deleteUserConversationFromCloud(currentUser.uid, id);
+      deleteUserConversationFromCloud(currentUser.uid, id).catch((err) =>
+        console.warn('Cloud delete error:', err)
+      );
     }
   };
 
@@ -432,7 +431,20 @@ export default function App() {
     // 🛡️ Device & Account Anti-Abuse Rate-Limit check
     const abuseCheck = checkAbuseAndRateLimit(activeUser?.uid);
     if (!abuseCheck.allowed) {
-      alert(abuseCheck.reason || 'Please wait a moment before sending another message.');
+      const warningMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: `⚠️ ${abuseCheck.reason || 'Please wait a moment before sending another message.'}`,
+        timestamp: Date.now(),
+        isError: true,
+      };
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === activeId
+            ? { ...c, messages: [...c.messages, warningMessage], updatedAt: Date.now() }
+            : c
+        )
+      );
       return;
     }
 
@@ -463,37 +475,37 @@ export default function App() {
       ? content.trim().slice(0, 32) || (image ? 'Photo Analysis' : 'New chat')
       : activeConversation?.title || 'Conversation';
 
-    // Ensure conversation exists in state so message is NEVER lost
+    // Ensure conversation exists in state and sync immediately to Firestore cloud
+    const activeUserId = currentUser?.uid || auth.currentUser?.uid;
+    const currentConv = conversations.find((c) => c.id === activeId);
+    const existingMessages = currentConv?.messages || [];
+    const updatedMessages = [...existingMessages, userMessage, initialAssistantMessage];
+    const updatedConv: Conversation = {
+      id: activeId,
+      title: computedTitle,
+      createdAt: currentConv?.createdAt || Date.now(),
+      updatedAt: Date.now(),
+      messages: updatedMessages,
+    };
+
     setConversations((prev) => {
       const exists = prev.some((c) => c.id === activeId);
-      if (!exists) {
-        const freshConv: Conversation = {
-          id: activeId,
-          title: computedTitle,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          messages: [userMessage, initialAssistantMessage],
-        };
-        return [freshConv, ...prev];
-      }
-      return prev.map((c) => {
-        if (c.id === activeId) {
-          return {
-            ...c,
-            title: computedTitle,
-            updatedAt: Date.now(),
-            messages: [...c.messages, userMessage, initialAssistantMessage],
-          };
-        }
-        return c;
-      });
+      if (!exists) return [updatedConv, ...prev];
+      return prev.map((c) => (c.id === activeId ? updatedConv : c));
     });
+
+    if (activeUserId) {
+      saveUserConversationToCloud(activeUserId, updatedConv).catch((e) =>
+        console.warn('Initial cloud save failed:', e)
+      );
+    }
 
     setTimeout(() => scrollToBottom('smooth'), 50);
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
     setIsStreaming(true);
+    let accumulatedText = '';
 
     try {
       const messagesForApi = [
@@ -522,7 +534,7 @@ export default function App() {
             enableSearch: settings.enableSearch,
             tone: settings.tone,
             systemInstruction: settings.systemInstruction,
-            model: settings.model || 'gemini-2.5-flash',
+            model: settings.model || 'gemini-3.8-flash',
           },
           customApiKey: settings.customApiKey,
         }),
@@ -544,7 +556,253 @@ export default function App() {
       if (!reader) throw new Error('No readable stream from server.');
 
       const decoder = new TextDecoder('utf-8');
-      let accumulatedText = '';
+      let sources: any[] = [];
+      let finalUsage: TokenUsage | undefined;
+      let buffer = '';
+      let serverStreamError = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+
+          const jsonStr = trimmed.slice(5).trim();
+          if (!jsonStr) continue;
+
+          let data: any = null;
+          try {
+            data = JSON.parse(jsonStr);
+          } catch {
+            continue;
+          }
+
+          if (data.error) {
+            serverStreamError = data.error;
+            break;
+          }
+
+          if (data.text) {
+            accumulatedText += data.text;
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.id === activeId) {
+                  return {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === assistantMessageId
+                        ? { ...m, content: accumulatedText }
+                        : m
+                    ),
+                  };
+                }
+                return c;
+              })
+            );
+            scrollToBottom('smooth');
+          }
+
+          if (data.sources) {
+            sources = data.sources;
+          }
+
+          if (data.usage) {
+            finalUsage = data.usage;
+            const updated = recordUsage(data.usage);
+            setDailyStats(updated);
+            if (currentUser?.uid) {
+              saveUserDailyQuotaToCloud(currentUser.uid, updated);
+            }
+            recordDeviceUsage(currentUser?.uid, data.usage.totalTokens || 0);
+          }
+
+          if (data.done) {
+            break;
+          }
+        }
+
+        if (serverStreamError) {
+          throw new Error(serverStreamError);
+        }
+      }
+
+      // Finalize assistant message and sync to Firestore
+      const finalizedMessages = updatedMessages.map((m) =>
+        m.id === assistantMessageId
+          ? {
+              ...m,
+              content: accumulatedText || 'Koi response generate nahi hua.',
+              sources: sources.length > 0 ? sources : undefined,
+              usage: finalUsage,
+              isStreaming: false,
+            }
+          : m
+      );
+
+      const finalConv: Conversation = {
+        ...updatedConv,
+        updatedAt: Date.now(),
+        messages: finalizedMessages,
+      };
+
+      setConversations((prev) =>
+        prev.map((c) => (c.id === activeId ? finalConv : c))
+      );
+
+      if (activeUserId) {
+        saveUserConversationToCloud(activeUserId, finalConv).catch((e) =>
+          console.warn('Final cloud save failed:', e)
+        );
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        const stoppedMessages = updatedMessages.map((m) =>
+          m.id === assistantMessageId
+            ? { ...m, isStreaming: false, content: m.content || '(Stopped)' }
+            : m
+        );
+        const stoppedConv: Conversation = {
+          ...updatedConv,
+          updatedAt: Date.now(),
+          messages: stoppedMessages,
+        };
+        setConversations((prev) =>
+          prev.map((c) => (c.id === activeId ? stoppedConv : c))
+        );
+        if (activeUserId) {
+          saveUserConversationToCloud(activeUserId, stoppedConv).catch((e) =>
+            console.warn('Abort cloud save failed:', e)
+          );
+        }
+      } else {
+        const errContent = `⚠️ Error: ${err.message || 'Something went wrong.'}`;
+        const errorMessages = updatedMessages.map((m) =>
+          m.id === assistantMessageId
+            ? {
+                ...m,
+                content: errContent,
+                isStreaming: false,
+                isError: true,
+              }
+            : m
+        );
+        const errorConv: Conversation = {
+          ...updatedConv,
+          updatedAt: Date.now(),
+          messages: errorMessages,
+        };
+        setConversations((prev) =>
+          prev.map((c) => (c.id === activeId ? errorConv : c))
+        );
+        if (activeUserId) {
+          saveUserConversationToCloud(activeUserId, errorConv).catch((e) =>
+            console.warn('Error cloud save failed:', e)
+          );
+        }
+      }
+    } finally {
+      setIsStreaming(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleRegenerate = async (targetModel?: string) => {
+    if (!activeConversation || activeConversation.messages.length === 0 || isStreaming) return;
+
+    const msgs = activeConversation.messages;
+    const lastAssistantIdx = [...msgs].reverse().findIndex((m) => m.role === 'assistant');
+    if (lastAssistantIdx === -1) return;
+    const actualAssistantIdx = msgs.length - 1 - lastAssistantIdx;
+    const assistantMsg = msgs[actualAssistantIdx];
+
+    const chosenModel = targetModel || settings.model || 'gemini-3.1-flash-lite';
+    if (targetModel && targetModel !== settings.model) {
+      setSettings((prev) => ({ ...prev, model: targetModel as any }));
+    }
+
+    const activeUserId = currentUser?.uid;
+
+    // Reset this exact assistant message in-place without adding duplicate user messages
+    const updatedMessages = msgs.map((m, idx) =>
+      idx === actualAssistantIdx
+        ? {
+            ...m,
+            content: '',
+            isStreaming: true,
+            isError: false,
+            timestamp: Date.now(),
+          }
+        : m
+    );
+
+    const updatedConv: Conversation = {
+      ...activeConversation,
+      updatedAt: Date.now(),
+      messages: updatedMessages,
+    };
+
+    setConversations((prev) =>
+      prev.map((c) => (c.id === activeId ? updatedConv : c))
+    );
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    setIsStreaming(true);
+    let accumulatedText = '';
+
+    try {
+      // Send conversation history up to the previous user message
+      const historyForApi = msgs.slice(0, actualAssistantIdx).map((m) => ({
+        role: m.role,
+        content: m.content,
+        image: m.image
+          ? {
+              data: m.image.data,
+              mimeType: m.image.mimeType,
+            }
+          : undefined,
+      }));
+
+      const response = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(settings.customApiKey ? { 'x-gemini-key': settings.customApiKey } : {}),
+        },
+        body: JSON.stringify({
+          messages: historyForApi,
+          settings: {
+            enableSearch: settings.enableSearch,
+            tone: settings.tone,
+            systemInstruction: settings.systemInstruction,
+            model: chosenModel,
+          },
+          customApiKey: settings.customApiKey,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        let errMessage = `Server error (${response.status})`;
+        try {
+          const errData = await response.json();
+          errMessage = errData.error || errMessage;
+        } catch {
+          // ignore
+        }
+        throw new Error(errMessage);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No readable stream from server.');
+
+      const decoder = new TextDecoder('utf-8');
       let sources: any[] = [];
       let finalUsage: TokenUsage | undefined;
       let buffer = '';
@@ -564,123 +822,111 @@ export default function App() {
           const jsonStr = trimmed.slice(5).trim();
           if (!jsonStr) continue;
 
+          let data: any = null;
           try {
-            const data = JSON.parse(jsonStr);
+            data = JSON.parse(jsonStr);
+          } catch {
+            continue;
+          }
 
-            if (data.error) {
-              throw new Error(data.error);
-            }
+          if (data.error) {
+            throw new Error(data.error);
+          }
 
-            if (data.text) {
-              accumulatedText += data.text;
-              setConversations((prev) =>
-                prev.map((c) => {
-                  if (c.id === activeId) {
-                    return {
-                      ...c,
-                      messages: c.messages.map((m) =>
-                        m.id === assistantMessageId
-                          ? { ...m, content: accumulatedText }
-                          : m
-                      ),
-                    };
-                  }
-                  return c;
-                })
-              );
-              scrollToBottom('smooth');
-            }
+          if (data.text) {
+            accumulatedText += data.text;
+            setConversations((prev) =>
+              prev.map((c) => {
+                if (c.id === activeId) {
+                  return {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === assistantMsg.id
+                        ? { ...m, content: accumulatedText }
+                        : m
+                    ),
+                  };
+                }
+                return c;
+              })
+            );
+          }
 
-            if (data.sources) {
-              sources = data.sources;
-            }
+          if (data.sources) {
+            sources = data.sources;
+          }
 
-            if (data.usage) {
-              finalUsage = data.usage;
-              const updated = recordUsage(data.usage);
-              setDailyStats(updated);
-              if (currentUser?.uid) {
-                saveUserDailyQuotaToCloud(currentUser.uid, updated);
-              }
-              recordDeviceUsage(currentUser?.uid, data.usage.totalTokens || 0);
-            }
-
-            if (data.done) {
-              break;
-            }
-          } catch (e: any) {
-            console.error('Error parsing SSE event:', e);
+          if (data.usage) {
+            finalUsage = data.usage;
+            recordDeviceUsage(currentUser?.uid, data.usage.totalTokens || 0);
           }
         }
       }
 
-      // Finalize assistant message and sync to Firestore
-      let finalConversationToSync: Conversation | null = null;
-      setConversations((prev) =>
-        prev.map((c) => {
-          if (c.id === activeId) {
-            const updated: Conversation = {
-              ...c,
-              updatedAt: Date.now(),
-              messages: c.messages.map((m) =>
-                m.id === assistantMessageId
-                  ? {
-                      ...m,
-                      content: accumulatedText || 'Koi response generate nahi hua.',
-                      sources: sources.length > 0 ? sources : undefined,
-                      usage: finalUsage,
-                      isStreaming: false,
-                    }
-                  : m
-              ),
-            };
-            finalConversationToSync = updated;
-            return updated;
-          }
-          return c;
-        })
+      const finalizedMessages = updatedMessages.map((m) =>
+        m.id === assistantMsg.id
+          ? {
+              ...m,
+              content: accumulatedText || 'No response received.',
+              sources: sources.length > 0 ? sources : undefined,
+              usage: finalUsage,
+              isStreaming: false,
+              isError: false,
+            }
+          : m
       );
 
-      if (currentUser?.uid && finalConversationToSync) {
-        saveUserConversationToCloud(currentUser.uid, finalConversationToSync);
+      const finalConv: Conversation = {
+        ...updatedConv,
+        updatedAt: Date.now(),
+        messages: finalizedMessages,
+      };
+
+      setConversations((prev) =>
+        prev.map((c) => (c.id === activeId ? finalConv : c))
+      );
+
+      if (activeUserId) {
+        saveUserConversationToCloud(activeUserId, finalConv).catch((e) =>
+          console.warn('Final cloud save failed:', e)
+        );
       }
     } catch (err: any) {
       if (err.name === 'AbortError') {
         setConversations((prev) =>
-          prev.map((c) => {
-            if (c.id === activeId) {
-              return {
-                ...c,
-                messages: c.messages.map((m) =>
-                  m.id === assistantMessageId
-                    ? { ...m, isStreaming: false, content: m.content || '(Stopped)' }
-                    : m
-                ),
-              };
-            }
-            return c;
-          })
+          prev.map((c) =>
+            c.id === activeId
+              ? {
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === assistantMsg.id
+                      ? { ...m, isStreaming: false, content: m.content || '(Stopped)' }
+                      : m
+                  ),
+                }
+              : c
+          )
         );
       } else {
+        const errContent = `⚠️ Error: ${err.message || 'Something went wrong.'}`;
         setConversations((prev) =>
-          prev.map((c) => {
-            if (c.id === activeId) {
-              return {
-                ...c,
-                messages: c.messages.map((m) =>
-                  m.id === assistantMessageId
-                    ? {
-                        ...m,
-                        content: `⚠️ Error: ${err.message || 'Something went wrong.'}`,
-                        isStreaming: false,
-                        isError: true,
-                      }
-                    : m
-                ),
-              };
-            }
-            return c;
-          })
+          prev.map((c) =>
+            c.id === activeId
+              ? {
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === assistantMsg.id
+                      ? {
+                          ...m,
+                          content: errContent,
+                          isStreaming: false,
+                          isError: true,
+                        }
+                      : m
+                  ),
+                }
+              : c
+          )
         );
       }
     } finally {
@@ -689,35 +935,28 @@ export default function App() {
     }
   };
 
-  const handleRegenerate = () => {
-    if (!activeConversation || activeConversation.messages.length === 0) return;
-    const lastUserIndex = [...activeConversation.messages]
-      .reverse()
-      .findIndex((m) => m.role === 'user');
-
-    if (lastUserIndex === -1) return;
-    const actualIndex = activeConversation.messages.length - 1 - lastUserIndex;
-    const lastUserMessage = activeConversation.messages[actualIndex];
-
-    setConversations((prev) =>
-      prev.map((c) => {
-        if (c.id === activeId) {
-          return {
-            ...c,
-            messages: c.messages.slice(0, actualIndex + 1),
-          };
-        }
-        return c;
-      })
-    );
-
-    setTimeout(() => {
-      handleSendMessage(lastUserMessage.content, lastUserMessage.image);
-    }, 50);
+  const handleSwitchModelAndRetry = (modelId: string) => {
+    setSettings((prev) => ({ ...prev, model: modelId as any }));
+    handleRegenerate(modelId);
   };
 
-  const modelQuota = MODEL_QUOTA_SPECS[settings.model || 'gemini-2.5-flash'];
-  const tokensRemaining = Math.max(0, modelQuota.tpd - dailyStats.totalTokensUsed);
+  const modelQuota = getModelQuota(settings.model);
+  const tokensRemaining = Math.max(0, (modelQuota?.tpd || 10000000) - (dailyStats?.totalTokensUsed || 0));
+
+  // If user is not logged in, display full-screen LoginPage with blurred video background
+  if (!currentUser) {
+    return (
+      <LoginPage
+        onLoginSuccess={(user) => {
+          setCurrentUser(user);
+          saveStoredUser(user);
+          const userConvs = loadInitialConversations(user.uid);
+          setConversations(userConvs);
+          setActiveId(userConvs[0]?.id || crypto.randomUUID());
+        }}
+      />
+    );
+  }
 
   return (
     <div className="flex h-dvh max-h-dvh w-full bg-[#080c14] text-slate-100 overflow-hidden font-sans fixed inset-0">
@@ -727,192 +966,154 @@ export default function App() {
         activeId={activeId}
         onSelectConversation={(id) => {
           setActiveId(id);
+          setActiveTab('chats');
           if (window.innerWidth < 1024) setIsSidebarOpen(false);
         }}
-        onNewChat={handleNewChat}
+        onNewChat={() => {
+          handleNewChat();
+          setActiveTab('chats');
+        }}
         onDeleteConversation={handleDeleteConversation}
         onRenameConversation={handleRenameConversation}
         onClearAll={handleClearAll}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenUsage={() => setIsUsageOpen(true)}
-        onOpenProMode={() => setIsProModeOpen(true)}
-        onOpenExplore={() => setQuickModal('explore')}
-        onOpenPrompts={() => setQuickModal('prompts')}
-        onOpenTools={() => setQuickModal('tools')}
+        onOpenProfile={() => setIsProfileModalOpen(true)}
+        activeTab={activeTab}
+        onSelectTab={(tab) => setActiveTab(tab)}
+        currentUser={currentUser}
         tokensLeft={tokensRemaining}
         isOpen={isSidebarOpen}
         onToggleOpen={() => setIsSidebarOpen((prev) => !prev)}
         currentModel={settings.model}
       />
 
-      {/* Main Chat Viewport */}
-      <main className="flex-1 flex flex-col h-full min-h-0 bg-[#080c14] relative overflow-hidden">
-        {/* TOP NAVBAR (PC & Mobile layouts) */}
-        <header className="h-14 sm:h-16 border-b border-[#141b2c] bg-[#090d18]/90 backdrop-blur-md flex items-center justify-between px-3 sm:px-6 shrink-0 z-10 select-none">
-          {/* MOBILE HEADER */}
-          <div className="flex sm:hidden items-center justify-between w-full">
-            <button
-              type="button"
-              onClick={() => setIsSidebarOpen(true)}
-              className="p-2 -ml-1 text-slate-300 hover:text-white"
-              title="Open menu"
-            >
-              <Menu size={22} />
-            </button>
+      {/* Main Viewport: Chat View or Images Gallery View */}
+      {activeTab === 'images' ? (
+        <ImagesGalleryPage
+          conversations={conversations}
+          onOpenConversation={(convId) => {
+            setActiveId(convId);
+            setActiveTab('chats');
+            if (window.innerWidth < 1024) setIsSidebarOpen(false);
+          }}
+          onBackToChat={() => setActiveTab('chats')}
+          onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+        />
+      ) : (
+        /* Main Chat Viewport */
+        <main className="flex-1 flex flex-col h-full min-h-0 bg-[#080c14] relative overflow-hidden">
+          {/* Floating Top Header with True Feathered Mask Gradient & Backdrop Blur */}
+          <div className="absolute top-0 left-0 right-0 z-20 pointer-events-none select-none">
+            {/* Feathered backdrop blur & dark gradient mask */}
+            <div
+              className="absolute inset-x-0 top-0 h-24 sm:h-28 bg-gradient-to-b from-[#080c14]/95 via-[#080c14]/80 to-transparent backdrop-blur-xl pointer-events-none"
+              style={{
+                WebkitMaskImage:
+                  'linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.9) 45%, rgba(0,0,0,0.4) 75%, rgba(0,0,0,0) 100%)',
+                maskImage:
+                  'linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.9) 45%, rgba(0,0,0,0.4) 75%, rgba(0,0,0,0) 100%)',
+              }}
+            />
 
-            {/* Center Brand Title */}
-            <div className="flex items-center gap-2">
-              <GyaanXLogo size={28} />
-              <div className="flex flex-col text-left">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-bold text-[13.5px] text-white tracking-tight">GyaanX AI</span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 ring-2 ring-emerald-400/20" />
-                </div>
-                <span className="text-[10px] text-slate-400">
-                  Online • GyaanX 2.0
-                </span>
-              </div>
-            </div>
-
-            {/* Mobile Actions: New Chat & Profile */}
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={handleNewChat}
-                className="p-2 text-slate-300 hover:text-white active:scale-95"
-                title="New Chat"
-              >
-                <SquarePen size={19} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsAuthModalOpen(true)}
-                className="p-1 -mr-1"
-                title={currentUser ? "Account" : "Sign In"}
-              >
-                <UserAvatar
-                  photoURL={currentUser?.photoURL}
-                  displayName={currentUser?.displayName || currentUser?.email}
-                  size={28}
-                />
-              </button>
-            </div>
-          </div>
-
-          {/* DESKTOP HEADER */}
-          <div className="hidden sm:flex items-center justify-between w-full">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setIsSidebarOpen((prev) => !prev)}
-                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-[#12192c] transition-colors"
-                title="Toggle Sidebar"
-              >
-                <PanelLeft size={19} />
-              </button>
-
-              <div className="flex items-center gap-2.5">
-                <GyaanXLogo size={32} />
-                <div className="flex flex-col">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-[14px] text-white tracking-tight">GyaanX AI</span>
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 ring-4 ring-emerald-400/20" />
+            {/* Interactive Header Bar */}
+            <header className="relative pointer-events-auto h-14 sm:h-16 px-4 sm:px-6 flex items-center justify-between transition-all">
+              {/* Left: 2-line minimalist menu & model selector pill with popup */}
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarOpen((prev) => !prev)}
+                  className="p-2 -ml-2 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 active:scale-95 transition-all cursor-pointer"
+                  title="Toggle sidebar"
+                >
+                  <div className="w-5 flex flex-col gap-1.5 py-0.5">
+                    <span className="w-5 h-[2px] bg-slate-300 rounded-full" />
+                    <span className="w-5 h-[2px] bg-slate-300 rounded-full" />
                   </div>
-                  <span className="text-[11px] text-slate-400">
-                    Online • GyaanX 2.0
-                  </span>
+                </button>
+
+                {/* Real GyaanX Model Selector Pill with Clean Status & Smooth Hover */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsModelDropdownOpen((prev) => !prev)}
+                    className="group flex items-center gap-2 px-3 sm:px-3.5 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.1] text-slate-100 hover:text-white text-[13.5px] sm:text-[14px] font-medium transition-all duration-200 cursor-pointer border border-white/[0.08] hover:border-white/[0.16] shadow-xs active:scale-95 backdrop-blur-md"
+                    title="Switch AI Engine"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-emerald-400/90 shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
+                    <span className="tracking-tight">{getModelDisplayName(settings.model)}</span>
+                    <ChevronDown size={14} className="text-slate-400 group-hover:text-slate-200 mt-0.5 transition-transform duration-200 group-hover:translate-y-0.5" />
+                  </button>
+
+                  {/* Floating Model Dropdown Popover */}
+                  <ModelSelectorDropdown
+                    isOpen={isModelDropdownOpen}
+                    onClose={() => setIsModelDropdownOpen(false)}
+                    selectedModel={settings.model}
+                    onSelectModel={(modelId) => {
+                      setSettings((prev) => ({ ...prev, model: modelId }));
+                    }}
+                    extendedThinking={extendedThinking}
+                    onToggleExtendedThinking={() => setExtendedThinking((prev) => !prev)}
+                  />
                 </div>
               </div>
-            </div>
 
-            {/* Right Action Icons */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setQuickModal('search')}
-                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-[#12192c] transition-colors cursor-pointer"
-                title="Search chats"
-              >
-                <Search size={18} />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {}}
-                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-[#12192c] transition-colors cursor-pointer"
-                title="Theme: Obsidian Dark"
-              >
-                <Moon size={18} />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsSettingsOpen(true)}
-                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-[#12192c] transition-colors cursor-pointer"
-                title="Preferences & Model"
-              >
-                <SlidersHorizontal size={18} />
-              </button>
-
-              {/* User Avatar & Login Trigger */}
-              <button
-                type="button"
-                onClick={() => setIsAuthModalOpen(true)}
-                className="ml-1 cursor-pointer active:scale-95 transition-transform flex items-center gap-2 p-1 rounded-full hover:bg-slate-800/60"
-                title={currentUser ? `${currentUser.displayName || currentUser.email} (Manage profile)` : 'Sign In with Google or GitHub'}
-              >
-                <UserAvatar
-                  photoURL={currentUser?.photoURL}
-                  displayName={currentUser?.displayName || currentUser?.email}
-                  size={32}
-                />
-              </button>
-            </div>
+              {/* Right: Clean New Chat button */}
+              <div className="flex items-center">
+                <button
+                  type="button"
+                  onClick={handleNewChat}
+                  className="p-2 rounded-full text-slate-300 hover:text-white hover:bg-white/5 active:scale-95 transition-all cursor-pointer"
+                  title="New Chat"
+                >
+                  <SquarePen size={19} strokeWidth={1.75} />
+                </button>
+              </div>
+            </header>
           </div>
-        </header>
 
-        {/* Message Feed Container - scrolls independently */}
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col overscroll-contain">
-          {activeConversation?.messages && activeConversation.messages.length > 0 ? (
-            <div className="flex-1 pb-4">
-              {activeConversation.messages.map((message, index) => {
-                const isLastAssistant =
-                  index === activeConversation.messages.length - 1 &&
-                  message.role === 'assistant';
+          {/* Message Feed Container - scrolls underneath the header with top padding */}
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col overscroll-contain no-scrollbar pt-16 sm:pt-18">
+            {activeConversation?.messages && activeConversation.messages.length > 0 ? (
+              <div className="flex-1 pb-4">
+                {activeConversation.messages.map((message, index) => {
+                  const isLastAssistant =
+                    index === activeConversation.messages.length - 1 &&
+                    message.role === 'assistant';
 
-                return (
-                  <ChatMessage
-                    key={message.id}
-                    message={message}
-                    isLastAssistant={isLastAssistant}
-                    onRegenerate={handleRegenerate}
-                    userPhotoURL={currentUser?.photoURL}
-                    userName={currentUser?.displayName || currentUser?.email}
-                  />
-                );
-              })}
-              <div ref={messagesEndRef} className="h-4" />
-            </div>
-          ) : (
-            <EmptyState />
-          )}
-        </div>
+                  return (
+                    <ChatMessage
+                      key={message.id}
+                      message={message}
+                      isLastAssistant={isLastAssistant}
+                      onRegenerate={() => handleRegenerate()}
+                      onSwitchModelAndRetry={handleSwitchModelAndRetry}
+                      userPhotoURL={currentUser?.photoURL}
+                      userName={currentUser?.displayName || currentUser?.email}
+                      onOpenProfile={() => setIsProfileModalOpen(true)}
+                    />
+                  );
+                })}
+                <div ref={messagesEndRef} className="h-4" />
+              </div>
+            ) : (
+              <EmptyState userName={currentUser?.displayName || currentUser?.email} />
+            )}
+          </div>
 
-        {/* Permanently Anchored Input Footer - Never Scrolls Away */}
-        <div className="shrink-0 w-full z-20 bg-[#080c14] border-t border-[#141b2c]/80 pb-[env(safe-area-inset-bottom,0px)]">
-          <ChatInput
-            onSendMessage={(content, image) => handleSendMessage(content, image)}
-            isStreaming={isStreaming}
-            onStop={handleStop}
-            enableSearch={settings.enableSearch}
-            onToggleSearch={() =>
-              setSettings((prev) => ({ ...prev, enableSearch: !prev.enableSearch }))
-            }
-            isLoggedIn={!!currentUser}
-            onRequireLogin={() => setIsAuthModalOpen(true)}
-          />
-        </div>
-      </main>
+          {/* Floating Input Footer with soft gradient atmospheric blur-fade behind the box */}
+          <div className="shrink-0 w-full z-20 bg-gradient-to-t from-[#080c14] via-[#080c14]/90 to-transparent pt-3 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-md">
+            <ChatInput
+              onSendMessage={(content, image) => handleSendMessage(content, image)}
+              isStreaming={isStreaming}
+              onStop={handleStop}
+              isLoggedIn={!!currentUser}
+              onRequireLogin={() => setIsAuthModalOpen(true)}
+            />
+          </div>
+        </main>
+      )}
 
       {/* Settings Modal */}
       <SettingsModal
@@ -928,7 +1129,7 @@ export default function App() {
         isOpen={isUsageOpen}
         onClose={() => setIsUsageOpen(false)}
         dailyStats={dailyStats}
-        currentModel={settings.model || 'gemini-2.5-flash'}
+        currentModel={settings.model || 'gemini-3.1-flash-lite'}
       />
 
       {/* Auth & Profile Modal */}
@@ -937,6 +1138,20 @@ export default function App() {
         onClose={() => setIsAuthModalOpen(false)}
         currentUser={currentUser}
         onUserChange={setCurrentUser}
+      />
+
+      {/* Account Profile & AI Instructions Modal */}
+      <ProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        currentUser={currentUser}
+        onUpdateUser={(updated) => {
+          setCurrentUser(updated);
+          saveStoredUser(updated);
+        }}
+        settings={settings}
+        onUpdateSettings={(newSettings) => setSettings(newSettings)}
+        onRequireLogin={() => setIsAuthModalOpen(true)}
       />
 
       {/* Dedicated Pro Mode Modal */}
