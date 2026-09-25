@@ -1,0 +1,7 @@
+{
+  "name": "Gemini AI Chat",
+  "description": "Ultra-clean, modern conversational AI assistant powered by Google Gemini with real-time streaming, search grounding, multi-chat management, and sleek aesthetics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
